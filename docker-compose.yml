@@ -1,5 +1,3 @@
-version: "3.9"
-
 x-airflow-common: &airflow-common
   build:
     context: .
@@ -15,6 +13,7 @@ x-airflow-common: &airflow-common
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
+    - ./spark:/opt/airflow/spark
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     postgres:
@@ -36,6 +35,25 @@ services:
       retries: 5
     restart: unless-stopped
 
+  spark-master:
+    container_name: spark-master
+    image: apache/spark:3.5.0
+    ports:
+      - "4040:8080"
+      - "7077:7077"
+    command: "/opt/spark/bin/spark-class org.apache.spark.deploy.master.Master"
+    restart: unless-stopped
+
+  spark-worker:
+    container_name: spark-worker
+    image: apache/spark:3.5.0
+    depends_on:
+      - spark-master
+    ports:
+      - "7000:7000"
+    command: "/opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077"
+    restart: unless-stopped
+
   airflow-init:
     <<: *airflow-common
     entrypoint: /bin/bash
@@ -50,6 +68,13 @@ services:
           --firstname Airflow \
           --lastname Admin \
           --email admin@example.com
+    depends_on:
+      postgres:
+        condition: service_healthy
+      spark-master:
+        condition: service_started
+      spark-worker:
+        condition: service_started
     restart: "no"
 
   airflow-webserver:
